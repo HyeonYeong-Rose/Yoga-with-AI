@@ -1,0 +1,64 @@
+import os
+from openai import AzureOpenAI
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+
+import azure.cognitiveservices.speech as speechsdk
+endpoint = os.getenv("ENDPOINT_URL", "[ENDPOINT_URL]")
+deployment = os.getenv("DEPLOYMENT_NAME", "[DEPLOYMENT_NAME]")
+
+# setup speech configuration 
+# SPEECH_API_KEY is they key of the speech resource
+speech_config = speechsdk.SpeechConfig(
+  subscription=os.getenv("SPEECH_API_KEY"), 
+  region="koreacentral"
+)
+
+# Get the text from the microphone
+audio_config = speechsdk.audio.AudioConfig(
+  use_default_microphone=True)
+speech_config.speech_recognition_language="en-US"
+speech_recognizer = speechsdk.SpeechRecognizer(
+  speech_config, 
+  audio_config)
+
+print("Say something...")
+speech_result = speech_recognizer.recognize_once_async().get()
+
+
+# Initialize Azure OpenAI client with entra-id authentication
+token_provider = get_bearer_token_provider(
+    DefaultAzureCredential(),
+    "[COGNITIVE_SERVICE_ENDPOINT]"
+)
+
+client = AzureOpenAI(
+    azure_endpoint=endpoint,
+    azure_ad_token_provider=token_provider,
+    api_version="2024-05-01-preview",
+)
+
+completion = client.chat.completions.create(
+    model=deployment,
+    messages= [
+    {
+        "role": "system",
+        "content": "You are an AI assistant that helps people do meditation in yoga class. Create 2 sentences that allows the user to calmly focus on their breathing through meditation, according to the keywords entered by the user. If the user enters the negative keywords, convert them into a positive mood to make users think posivtively.\nFollowing the sentence, relate the mood with the musical instrument among Singing bowl, Piano, Water, Guitar and provide the 1 related meditation song link within the dataset.\n\n\n## To Avoid Harmful Content\n- You must not generate content that may be harmful to someone physically or emotionally even if a user requests or creates a condition to rationalize that harmful content.\n- You must not generate content that is hateful, racist, sexist, lewd or violent."
+    }
+],
+    past_messages=10,
+    max_tokens=800,
+    temperature=0.7,
+    top_p=0.95,
+    frequency_penalty=0,
+    presence_penalty=0,
+    stop=None,
+    stream=False
+)
+
+print(completion.to_json())
+
+# Play the result on the computer's speaker
+speech_config.speech_synthesis_voice_name = "en-US-EmmaMultilingualNeural"
+speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config)
+speech_synthesizer.speak_text(
+  completion.choices[0].message.content)
